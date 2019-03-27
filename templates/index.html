@@ -4,12 +4,13 @@
 {% csrf_token %}
 <p> SELECT YOUR DISTRICT</p>
 <select name="district" required>
-  
+  <option disabled>-------</option>
   {% for i in places %}
-  {% if i.equals(place) %}
-  <option value="{{ i }}" checked>{{i}}</option>
-  {% endif %}
+  {% if i == place %}
+  <option value="{{ i }}" selected>{{i}}</option>
+  {% else %}
   <option value="{{ i }}">{{i}}</option>
+  {% endif %}
   {% endfor %}
 </select>
 <p> SELECT THE NUMBER OF MONTHS </P>

@@ -66,7 +66,197 @@ def getDistrict():
     print(district)
     return district
 
+def count_zeros_and_non_missings(values):
+    """
+    Given an input array of values return a count of the zeros and non-missing values.
+    Missing values assumed to be numpy.NaNs.
+    
+    :param values: array like object (numpy array, most likely)
+    :return: two int scalars: 1) the count of zeros, and 2) the count of non-missing values  
+    """
+    
+    # make sure we have a numpy array
+    values = np.array(values)
+    
+    # count the number of zeros and non-missing (non-NaN) values
+    zeros = values.size - np.count_nonzero(values)
+    non_missings = np.count_nonzero(~np.isnan(values))
 
+
+def _pearson3_fitting_values(values):
+    """
+    This function computes the probability of zero and Pearson Type III distribution parameters 
+    corresponding to an array of values.
+    
+    :param values: 2-D array of values, with each row representing a year containing either 12 values corresponding 
+                   to the calendar months of that year, or 366 values corresponding to the days of the year 
+                   (with Feb. 29th being an average of the Feb. 28th and Mar. 1st values for non-leap years)
+                   and assuming that the first value of the array is January of the initial year for an input array 
+                   of monthly values or Jan. 1st of initial year for an input array daily values
+    :param data_start_year: the initial year of the input values array
+    :param calibration_start_year: the initial year to use for the calibration period 
+    :param calibration_end_year: the final year to use for the calibration period 
+    :return: a 2-D array of fitting values for the Pearson Type III distribution, with shape (4, 12) for monthly 
+             or (4, 366) for daily
+             returned_array[0] == probability of zero for each of the calendar time steps 
+             returned_array[1] == the first Pearson Type III distribution parameter for each of the calendar time steps 
+             returned_array[2] == the second Pearson Type III distribution parameter for each of the calendar time steps 
+             returned_array[3] == the third Pearson Type III distribution parameter for each of the calendar time steps 
+    """
+    
+    # validate that the values array has shape: (years, 12) for monthly or (years, 366) for daily
+    if len(values.shape) != 2:
+        message = 'Invalid shape of input data array: {0}'.format(values.shape)
+        _logger.error(message)
+        raise ValueError(message)
+    
+    else:
+        
+        time_steps_per_year = values.shape[1]
+        if (time_steps_per_year != 12) and (time_steps_per_year != 366):
+            message = 'Invalid shape of input data array: {0}'.format(values.shape)
+            _logger.error(message)
+            raise ValueError(message)
+
+    # the values we'll compute and return
+    fitting_values = np.zeros((4, time_steps_per_year))
+
+    # compute the probability of zero and Pearson parameters for each calendar time step
+    #TODO vectorize the below loop? create a @numba.vectorize() ufunc for application over the second axis of the values
+    for time_step_index in range(time_steps_per_year):
+    
+        # get the values for the current calendar time step
+        time_step_values = values[:, time_step_index]
+        print('----------------------------',time_step_values)
+
+        # count the number of zeros and valid (non-missing/non-NaN) values
+        number_of_zeros, number_of_non_missing = count_zeros_and_non_missings(time_step_values)
+
+        # make sure we have at least four values that are both non-missing (i.e. non-NaN)
+        # and non-zero, otherwise use the entire period of record
+        if (number_of_non_missing - number_of_zeros) < 4:
+             
+            # we can't proceed, bail out using zeros
+            return fitting_values
+         
+        # calculate the probability of zero for the calendar time step
+        probability_of_zero = 0.0
+        if number_of_zeros > 0:
+
+            probability_of_zero = number_of_zeros / number_of_non_missing
+            
+        # get the estimated L-moments, if we have more than three non-missing/non-zero values
+        if (number_of_non_missing - number_of_zeros) > 3:
+
+            # estimate the L-moments of the calibration values
+            lmoments = _estimate_lmoments(time_step_values)
+
+            # if we have valid L-moments then we can proceed, otherwise 
+            # the fitting values for the time step will be all zeros
+            if (lmoments[1] > 0.0) and (abs(lmoments[2]) < 1.0):
+                
+                # get the Pearson Type III parameters for the time step, based on the L-moments
+                pearson_parameters = _estimate_pearson3_parameters(lmoments)
+
+                fitting_values[0, time_step_index] = probability_of_zero
+                fitting_values[1, time_step_index] = pearson_parameters[0]
+                fitting_values[2, time_step_index] = pearson_parameters[1]
+                fitting_values[3, time_step_index] = pearson_parameters[2]
+
+#             else:
+#                 #FIXME/TODO there must be a better way to handle this, and/or is this as irrelevant 
+#                 #as swallowing the error here assumes? Do we get similar results using lmoments3 module?
+#                 #How does the comparable NCSU SPI code (Cumbie et al?) handle this?
+#                 _logger.warn('Due to invalid L-moments the Pearson fitting values for time step {0} are defaulting to zero'.format(time_step_index))
+
+    return fitting_values
+
+
+def transform_fitted_pearson(values,
+                             data_start_year,
+                             calibration_start_year,
+                             calibration_end_year,
+                             periodicity):
+    '''
+    Fit values to a Pearson Type III distribution and transform the values to corresponding normalized sigmas. 
+    
+    :param values: 2-D array of values, with each row representing a year containing
+                   twelve columns representing the respective calendar months, or 366 columns representing days 
+                   as if all years were leap years
+    :param data_start_year: the initial year of the input values array
+    :param calibration_start_year: the initial year to use for the calibration period 
+    :param calibration_end_year: the final year to use for the calibration period 
+    :param periodicity: the periodicity of the time series represented by the input data, valid/supported values are 
+                        'monthly' and 'daily'
+                        'monthly' indicates an array of monthly values, assumed to span full years, i.e. the first 
+                        value corresponds to January of the initial year and any missing final months of the final 
+                        year filled with NaN values, with size == # of years * 12
+                        'daily' indicates an array of full years of daily values with 366 days per year, as if each
+                        year were a leap year and any missing final months of the final year filled with NaN values, 
+                        with array size == (# years * 366)
+    :return: 2-D array of transformed/fitted values, corresponding in size and shape of the input array
+    :rtype: numpy.ndarray of floats
+    '''
+    
+    # if we're passed all missing values then we can't compute anything, return the same array of missing values
+    if (np.ma.is_masked(values) and values.mask.all()) or np.all(np.isnan(values)):
+        return values
+        
+    # validate (and possibly reshape) the input array
+    if len(values.shape) == 1:
+        
+        if periodicity is None:    
+            message = '1-D input array requires a corresponding periodicity argument, none provided'
+            _logger.error(message)
+            raise ValueError(message)
+
+        elif periodicity == 'monthly': 
+            # we've been passed a 1-D array with shape (months), reshape it to 2-D with shape (years, 12)
+            values = reshape_to_2d(values, 12)
+            
+        else:
+            message = 'Unsupported periodicity argument: \'{0}\''.format(periodicity)
+            _logger.error(message)
+            raise ValueError(message)
+        
+    elif (len(values.shape) != 2) or ((values.shape[1] != 12) and (values.shape[1] != 366)):
+      
+        # neither a 1-D nor a 2-D array with valid shape was passed in
+        message = 'Invalid input array with shape: {0}'.format(values.shape)
+        _logger.error(message)   
+        raise ValueError(message)
+    
+    # determine the end year of the values array
+    data_end_year = data_start_year + values.shape[0]
+    
+    # make sure that we have data within the full calibration period, otherwise use the full period of record
+    if (calibration_start_year < data_start_year) or (calibration_end_year > data_end_year):
+        _logger.info('Insufficient data for the specified calibration period ({0}-{1}), instead using the full period '.format(calibration_start_year, 
+                                                                                                                              calibration_end_year) + 
+                    'of record ({0}-{1})'.format(data_start_year, 
+                                                 data_end_year))
+        calibration_start_year = data_start_year
+        calibration_end_year = data_end_year
+
+    # get the year axis indices corresponding to the calibration start and end years
+    calibration_begin_index = (calibration_start_year - data_start_year)
+    calibration_end_index = (calibration_end_year - data_start_year) + 1
+    
+    # get the values for the current calendar time step that fall within the calibration years period
+    calibration_values = values[calibration_begin_index:calibration_end_index, :]
+
+    # compute the values we'll use to fit to the Pearson Type III distribution
+    pearson_values = _pearson3_fitting_values(calibration_values)
+    
+    pearson_param_1 = pearson_values[1]   # first Pearson Type III parameter
+    pearson_param_2 = pearson_values[2]   # second Pearson Type III parameter
+    pearson_param_3 = pearson_values[3]   # third Pearson Type III parameter
+    probability_of_zero = pearson_values[0]
+ 
+    # fit each value using the Pearson Type III fitting universal function in a broadcast fashion    
+    fitted_values = _pearson_fit_ufunc(values, pearson_param_1, pearson_param_2, pearson_param_3, probability_of_zero)
+                    
+    return fitted_values
 
 def transform_fitted_gamma(values,
                            data_start_year,
@@ -409,7 +599,7 @@ def calculateSPI(district,scale):
                                                                    calibration_year_final,
                                                                    'monthly')
     # fit the scaled values to a Pearson Type III distribution and transform to corresponding normalized sigmas 
-    transformed_fitted_values_pearson = compute.transform_fitted_pearson(scaled_precips, 
+    transformed_fitted_values_pearson = transform_fitted_pearson(scaled_precip, 
                                                                      data_start_year,
                                                                      calibration_year_initial,
                                                                      calibration_year_final,
@@ -541,7 +731,7 @@ def calculateSPEI(district,scale):
                                                                    'monthly')
 
     # fit the scaled values to a Pearson Type III distribution and transform to corresponding normalized sigmas 
-    transformed_fitted_values_pearson = compute.transform_fitted_pearson(scaled_precPET, 
+    transformed_fitted_values_pearson = transform_fitted_pearson(scaled_precPET, 
                                                                      data_start_year,
                                                                      calibration_year_initial,
                                                                      calibration_year_final,
