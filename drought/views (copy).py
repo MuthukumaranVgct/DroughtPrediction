@@ -6,24 +6,19 @@ from sklearn.model_selection import train_test_split
 from sklearn import metrics
 import numpy as np
 import scipy.special
-from sklearn.tree import export_graphviz
 import scipy.stats
 import os,math
 import numba
-from sklearn.ensemble import RandomForestRegressor
 from math import *
+# Create your views here.
+_FITTED_INDEX_VALID_MIN = -3.09
+_FITTED_INDEX_VALID_MAX = 3.09
+
 from bs4 import BeautifulSoup
 import requests
 import urllib.parse as u
 import requests
 import json
-
-
-
-# Create your views here.
-_FITTED_INDEX_VALID_MIN = -3.09
-_FITTED_INDEX_VALID_MAX = 3.09
-
 
 
 
@@ -888,12 +883,11 @@ def calculateSPI(district,scale):
 
 
     # instantiate
-    #linreg = LinearRegression()
-    rf = RandomForestRegressor(n_estimators = 500, random_state = 42)
+    linreg = LinearRegression()
 
     # fit the model to the training data (learn the coefficients)
-    rf.fit(X_train, y_train)
-    y_pred = rf.predict(X_test)
+    linreg.fit(X_train, y_train)
+    y_pred = linreg.predict(X_test)
     print('Predicted')
     print(type(y_test))
     print('Actual')
@@ -931,11 +925,11 @@ def calculateSPI(district,scale):
 
 
     # instantiate
-    rf = RandomForestRegressor(n_estimators = 500, random_state = 42)
+    linreg = LinearRegression()
 
     # fit the model to the training data (learn the coefficients)
-    rf.fit(X_train, y_train)
-    y_pred = rf.predict(X_test)
+    linreg.fit(X_train, y_train)
+    y_pred = linreg.predict(X_test)
     print('Predicted')
     #print(y_test)
     print('Actual')
@@ -1006,7 +1000,7 @@ def calculateSPEI(district,scale):
             data.append([i,j,k,count])
         count+=1
     data=pd.DataFrame(data,columns=['spei','Precip','PET','time'])
-    feature_cols=['Precip','time']
+    feature_cols=['Precip','PET','time']
     X = data[feature_cols]
     feature_cols = ['spei']
     y = data[feature_cols]
@@ -1019,11 +1013,11 @@ def calculateSPEI(district,scale):
 
 
     # instantiate
-    rf = RandomForestRegressor(n_estimators = 500, random_state = 42)
+    linreg = LinearRegression()
 
     # fit the model to the training data (learn the coefficients)
-    rf.fit(X_train, y_train)
-    y_pred = rf.predict(X_test)
+    linreg.fit(X_train, y_train)
+    y_pred = linreg.predict(X_test)
     print('Predicted')
     #print(y_test)
     print('Actual')
@@ -1048,7 +1042,7 @@ def calculateSPEI(district,scale):
             data.append([i,j,k,count])
         count+=1
     data=pd.DataFrame(data,columns=['spei','Precip','PET','time'])
-    feature_cols=['Precip','time']
+    feature_cols=['Precip','PET','time']
     X = data[feature_cols]
     feature_cols = ['spei']
     y = data[feature_cols]
@@ -1060,11 +1054,11 @@ def calculateSPEI(district,scale):
     print(y_test.shape)
 
     # instantiate
-    rf = RandomForestRegressor(n_estimators = 500, random_state = 42)
+    linreg = LinearRegression()
 
     # fit the model to the training data (learn the coefficients)
-    rf.fit(X_train, y_train)
-    y_pred = rf.predict(X_test)
+    linreg.fit(X_train, y_train)
+    y_pred = linreg.predict(X_test)
     print('Predicted')
     print(y_test)
     print('Actual')
